@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Events, AttachmentBuilder, EmbedBuilder, ChannelType } = require('discord.js');
+const { Client, GatewayIntentBits, Events, AttachmentBuilder, EmbedBuilder, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { Groq } = require('groq-sdk');
 const express = require('express');
 const jwt = require('jsonwebtoken');
@@ -41,6 +41,7 @@ const BACKUP_RETENTION = 10;
 
 const BACKUP_DIR = './backups';
 const MESSAGES_DIR = './message_store';
+const MODERATION_FILE = './moderation_actions.json';
 
 if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
 if (!fs.existsSync(MESSAGES_DIR)) fs.mkdirSync(MESSAGES_DIR, { recursive: true });
@@ -49,6 +50,27 @@ if (!fs.existsSync('./public')) fs.mkdirSync('./public', { recursive: true });
 
 let logChannel = null;
 
+// --- Moderation actions storage ---
+function loadModerationActions() {
+    if (!fs.existsSync(MODERATION_FILE)) return [];
+    try {
+        return JSON.parse(fs.readFileSync(MODERATION_FILE, 'utf8'));
+    } catch(e) { return []; }
+}
+
+function saveModerationAction(action) {
+    const actions = loadModerationActions();
+    actions.unshift({
+        id: Date.now(),
+        ...action,
+        timestamp: new Date().toISOString()
+    });
+    // Keep last 1000 actions
+    if (actions.length > 1000) actions.pop();
+    fs.writeFileSync(MODERATION_FILE, JSON.stringify(actions, null, 2));
+}
+
+// --- Helper functions (unchanged from previous version) ---
 function getMessageFilePath(guildId, channelId) {
     const guildDir = path.join(MESSAGES_DIR, guildId);
     if (!fs.existsSync(guildDir)) fs.mkdirSync(guildDir, { recursive: true });
@@ -72,29 +94,6 @@ function saveMessageToFile(message) {
     fs.writeFileSync(filePath, JSON.stringify(messages, null, 2));
 }
 
-async function saveMessageToDiscord(message) {
-    if (!logChannel) return;
-    try {
-        const embed = new EmbedBuilder()
-            .setColor(0x5865f2)
-            .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
-            .setDescription(message.content || "*No content*")
-            .addFields(
-                { name: "Channel", value: `<#${message.channelId}>`, inline: true },
-                { name: "Server", value: message.guild?.name || "DM", inline: true }
-            )
-            .setFooter({ text: `User ID: ${message.author.id}` })
-            .setTimestamp(message.createdTimestamp);
-        if (message.attachments.size > 0) {
-            const attachments = Array.from(message.attachments.values()).map(a => `[${a.name}](${a.url})`).join(", ");
-            embed.addFields({ name: "Attachments", value: attachments || "None", inline: false });
-        }
-        await logChannel.send({ embeds: [embed] });
-    } catch(e) {
-        console.error("Failed to save message to Discord log channel:", e.message);
-    }
-}
-
 async function saveConversationToDiscord(user, assistant, channelId, guildId) {
     if (!logChannel) return;
     try {
@@ -109,9 +108,7 @@ async function saveConversationToDiscord(user, assistant, channelId, guildId) {
             )
             .setTimestamp();
         await logChannel.send({ embeds: [embed] });
-    } catch(e) {
-        console.error("Failed to save conversation to Discord log channel:", e.message);
-    }
+    } catch(e) {}
 }
 
 async function saveDeletedMessageToDiscord(message, deleter) {
@@ -129,9 +126,7 @@ async function saveDeletedMessageToDiscord(message, deleter) {
             .setFooter({ text: `Message ID: ${message.id}` })
             .setTimestamp();
         await logChannel.send({ embeds: [embed] });
-    } catch(e) {
-        console.error("Failed to save deleted message to Discord log channel:", e.message);
-    }
+    } catch(e) {}
 }
 
 function getAllMessagesForGuild(guildId) {
@@ -376,7 +371,7 @@ function updateSecurityConfig(guildId, newConfig) {
     return updated;
 }
 
-// Timer system
+// Timer system (unchanged)
 function updateAllTimers() {
     for (const [timerId, timer] of activeTimers.entries()) {
         const remaining = timer.endTime - Date.now();
@@ -434,7 +429,7 @@ function getAllTimers() {
     return Array.from(activeTimers.entries()).map(([id, t]) => ({ id, name: t.name, remaining: Math.max(0, t.endTime - Date.now()), channelId: t.channelId }));
 }
 
-// AI system prompt
+// AI prompt (unchanged)
 const SYSTEM_PROMPT = `You are XZX Bot, a helpful Discord assistant.
 
 BEHAVIOR RULES:
@@ -500,7 +495,31 @@ async function createAndSendFile(code, fileName, extension, message) {
     return fullName;
 }
 
-// Events
+// --- Helper for invite detection ---
+function extractDiscordInviteCode(content) {
+    const match = content.match(/(?:discord\.(?:gg|com\/invite|app\/invite)\/)([a-zA-Z0-9_-]+)/i);
+    return match ? match[1] : null;
+}
+
+async function fetchInviteInfo(code) {
+    try {
+        const url = `https://discord.com/api/v10/invites/${code}?with_counts=true&with_expiration=true`;
+        const res = await fetch(url, { headers: { Authorization: `Bot ${TOKEN}` } });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch (e) {
+        console.error('Failed to fetch invite info:', e);
+        return null;
+    }
+}
+
+function isServerAgeRestricted(guildInfo) {
+    if (!guildInfo) return false;
+    // nsfw_level: 0=DEFAULT, 1=EXPLICIT, 2=SAFE, 3=AGE_RESTRICTED
+    return guildInfo.guild?.nsfw_level === 1 || guildInfo.guild?.nsfw_level === 3;
+}
+
+// --- Discord event handlers ---
 client.once(Events.ClientReady, async c => {
     console.log(`XZX Bot online as ${c.user.tag}`);
     if (LOG_CHANNEL_ID) {
@@ -512,19 +531,76 @@ client.once(Events.ClientReady, async c => {
 client.on(Events.MessageCreate, async (message) => {
     if (message.author.bot) return;
     if (!message.content?.trim()) return;
+
+    // Save message to local store
+    const config = message.guildId ? getSecurityConfig(message.guildId) : null;
+    if (config?.logMessages && message.guildId) saveMessageToFile(message);
+
+    // --- MODERATION: Detect invite to 18+ server ---
+    const inviteCode = extractDiscordInviteCode(message.content);
+    if (inviteCode && message.guild && message.member) {
+        const inviteInfo = await fetchInviteInfo(inviteCode);
+        if (inviteInfo && isServerAgeRestricted(inviteInfo)) {
+            const row = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`kick_${message.author.id}_${message.id}`)
+                        .setLabel('Kick User')
+                        .setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder()
+                        .setCustomId(`timeout_60_${message.author.id}_${message.id}`)
+                        .setLabel('Timeout 60s')
+                        .setStyle(ButtonStyle.Warning),
+                    new ButtonBuilder()
+                        .setCustomId(`timeout_3600_${message.author.id}_${message.id}`)
+                        .setLabel('Timeout 1h')
+                        .setStyle(ButtonStyle.Warning),
+                    new ButtonBuilder()
+                        .setCustomId(`ban_${message.author.id}_${message.id}`)
+                        .setLabel('Ban User')
+                        .setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder()
+                        .setCustomId(`delete_${message.id}`)
+                        .setLabel('Delete Message')
+                        .setStyle(ButtonStyle.Secondary)
+                );
+
+            const embed = new EmbedBuilder()
+                .setColor(0xef4444)
+                .setTitle('Age‑Restricted Server Link Detected')
+                .setDescription(`${message.author} posted a link to a server marked as **18+ / Age‑Restricted**.\n\n**Link:** ${message.content}\n**Target Server:** ${inviteInfo.guild?.name || 'Unknown'}`)
+                .setFooter({ text: 'Use the buttons below to take action.' })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed], components: [row] });
+            if (logChannel) {
+                const logEmbed = new EmbedBuilder()
+                    .setColor(0xef4444)
+                    .setTitle('NSFW Invite Detected')
+                    .setDescription(`User: ${message.author.tag}\nServer: ${message.guild.name}\nChannel: #${message.channel.name}\nInvite: ${message.content}`)
+                    .setTimestamp();
+                await logChannel.send({ embeds: [logEmbed] });
+            }
+            // Do not continue to AI conversation for this message
+            return;
+        }
+    }
+
+    // --- AI conversation logic (only if not handled by moderation) ---
     const isDM = !message.guild;
     const mentioned = message.mentions.has(client.user);
     const isHelpRequest = needsHelp(message.content);
     if (!isDM && !mentioned && !isHelpRequest) return;
-    const config = message.guildId ? getSecurityConfig(message.guildId) : null;
-    if (config?.logMessages && message.guildId) saveMessageToFile(message);
+
     if (isXZXHubRequest(message.content)) {
         await message.reply("I cannot provide the XZXHub source code, but I can help with other scripting questions.");
         return;
     }
+
     const content = message.content.trim();
     const sessionKey = getSessionKey(message);
     let history = conversationHistory.get(sessionKey) || [];
+
     try {
         await message.channel.sendTyping();
         let contextMessages = [];
@@ -593,7 +669,94 @@ client.on(Events.MessageDelete, async (message) => {
     }
 });
 
-// Intervals
+// --- Interaction handler for moderation buttons ---
+client.on(Events.InteractionCreate, async interaction => {
+    if (!interaction.isButton()) return;
+    const customId = interaction.customId;
+    const parts = customId.split('_');
+    const action = parts[0];
+
+    if (!interaction.memberPermissions?.has('KickMembers')) {
+        return interaction.reply({ content: 'You need **Kick Members** permission to use this.', ephemeral: true });
+    }
+
+    if (action === 'kick') {
+        const userId = parts[1];
+        const messageId = parts[2];
+        const target = await interaction.guild.members.fetch(userId).catch(() => null);
+        if (!target) return interaction.reply({ content: 'User not found.', ephemeral: true });
+        if (!target.kickable) return interaction.reply({ content: 'I cannot kick that user.', ephemeral: true });
+        await target.kick('Posted link to an 18+ server');
+        await interaction.reply({ content: `✅ Kicked ${target.user.tag}.`, ephemeral: true });
+        addLog('ACTION', interaction.guild.id, `Kicked ${target.user.tag} for NSFW invite`);
+        saveModerationAction({
+            type: 'kick',
+            guildId: interaction.guild.id,
+            userId: target.id,
+            userName: target.user.tag,
+            reason: 'Posted 18+ server invite',
+            duration: null,
+            moderator: interaction.user.tag
+        });
+        await interaction.message.edit({ components: [] });
+    }
+    else if (action === 'timeout') {
+        const durationSec = parseInt(parts[1]);
+        const userId = parts[2];
+        const messageId = parts[3];
+        const target = await interaction.guild.members.fetch(userId).catch(() => null);
+        if (!target) return interaction.reply({ content: 'User not found.', ephemeral: true });
+        if (!target.moderatable) return interaction.reply({ content: 'I cannot timeout that user.', ephemeral: true });
+        const ms = durationSec * 1000;
+        await target.timeout(ms, 'Posted link to 18+ server');
+        await interaction.reply({ content: `⏱️ Timed out ${target.user.tag} for ${durationSec} seconds.`, ephemeral: true });
+        addLog('ACTION', interaction.guild.id, `Timed out ${target.user.tag} for ${durationSec}s`);
+        saveModerationAction({
+            type: 'timeout',
+            guildId: interaction.guild.id,
+            userId: target.id,
+            userName: target.user.tag,
+            reason: 'Posted 18+ server invite',
+            duration: durationSec,
+            moderator: interaction.user.tag
+        });
+        await interaction.message.edit({ components: [] });
+    }
+    else if (action === 'ban') {
+        const userId = parts[1];
+        const messageId = parts[2];
+        const target = await interaction.guild.members.fetch(userId).catch(() => null);
+        if (!target) return interaction.reply({ content: 'User not found.', ephemeral: true });
+        if (!target.bannable) return interaction.reply({ content: 'I cannot ban that user.', ephemeral: true });
+        await target.ban({ reason: 'Posted link to an 18+ server' });
+        await interaction.reply({ content: `🔨 Banned ${target.user.tag}.`, ephemeral: true });
+        addLog('ACTION', interaction.guild.id, `Banned ${target.user.tag} for NSFW invite`);
+        saveModerationAction({
+            type: 'ban',
+            guildId: interaction.guild.id,
+            userId: target.id,
+            userName: target.user.tag,
+            reason: 'Posted 18+ server invite',
+            duration: null,
+            moderator: interaction.user.tag
+        });
+        await interaction.message.edit({ components: [] });
+    }
+    else if (action === 'delete') {
+        const messageId = parts[1];
+        const channel = interaction.channel;
+        const msg = await channel.messages.fetch(messageId).catch(() => null);
+        if (msg) {
+            await msg.delete();
+            await interaction.reply({ content: '🗑️ Message deleted.', ephemeral: true });
+            addLog('ACTION', interaction.guild.id, `Deleted NSFW invite message in #${channel.name}`);
+            await interaction.message.edit({ components: [] }); // disable buttons
+        } else {
+            await interaction.reply({ content: 'Message already deleted.', ephemeral: true });
+        }
+    }
+});
+
 setInterval(() => {
     const now = Date.now();
     for (const [key, history] of conversationHistory.entries()) {
@@ -621,7 +784,7 @@ setInterval(async () => {
     }
 }, 3600000);
 
-// Express API
+// --- Express dashboard with new moderation endpoints ---
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -698,6 +861,28 @@ app.post('/api/guilds/:guildId/restore/:backupId', requireAuth, async (req, res)
 app.delete('/api/backup/:backupId', requireAuth, (req, res) => {
     if (deleteBackup(req.params.backupId)) res.json({ ok: true });
     else res.status(404).json({ error: 'Backup not found' });
+});
+
+// --- NEW: Moderation history endpoints ---
+app.get('/api/moderation/actions', requireAuth, (req, res) => {
+    const actions = loadModerationActions();
+    res.json(actions);
+});
+
+app.get('/api/moderation/stats', requireAuth, (req, res) => {
+    const actions = loadModerationActions();
+    const stats = {
+        total: actions.length,
+        kicks: actions.filter(a => a.type === 'kick').length,
+        timeouts: actions.filter(a => a.type === 'timeout').length,
+        bans: actions.filter(a => a.type === 'ban').length,
+        byGuild: {}
+    };
+    for (const a of actions) {
+        if (!stats.byGuild[a.guildId]) stats.byGuild[a.guildId] = 0;
+        stats.byGuild[a.guildId]++;
+    }
+    res.json(stats);
 });
 
 process.on("SIGINT", () => process.exit(0));
