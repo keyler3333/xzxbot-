@@ -35,6 +35,8 @@ const conversationHistory = new Map();
 const auditLogs = [];
 const securityConfig = new Map();
 const activeTimers = new Map();
+const userOffenses = new Map();
+
 const MAX_LOGS = 500;
 const MAX_BACKUP_MESSAGES = 5000;
 const BACKUP_RETENTION = 10;
@@ -60,6 +62,35 @@ function saveModerationAction(action) {
     actions.unshift({ id: Date.now(), ...action, timestamp: new Date().toISOString() });
     if (actions.length > 1000) actions.pop();
     fs.writeFileSync(MODERATION_FILE, JSON.stringify(actions, null, 2));
+}
+
+function getOffenseKey(guildId, userId) { return `${guildId}_${userId}`; }
+
+function getUserOffenseCount(guildId, userId) {
+    const key = getOffenseKey(guildId, userId);
+    return userOffenses.get(key)?.count || 0;
+}
+
+function incrementOffense(guildId, userId) {
+    const key = getOffenseKey(guildId, userId);
+    const current = userOffenses.get(key) || { count: 0, lastAction: null };
+    current.count++;
+    current.lastAction = Date.now();
+    userOffenses.set(key, current);
+    setTimeout(() => {
+        const entry = userOffenses.get(key);
+        if (entry && Date.now() - entry.lastAction > 30 * 24 * 60 * 60 * 1000) {
+            userOffenses.delete(key);
+        }
+    }, 30 * 24 * 60 * 60 * 1000);
+    return current.count;
+}
+
+function getPunishmentForOffense(offenseCount) {
+    if (offenseCount === 1) return { type: 'timeout', duration: 3600, label: '1 hour' };
+    if (offenseCount === 2) return { type: 'timeout', duration: 86400, label: '1 day' };
+    if (offenseCount === 3) return { type: 'timeout', duration: 604800, label: '1 week' };
+    return { type: 'ban', duration: null, label: 'permanent ban' };
 }
 
 function getMessageFilePath(guildId, channelId) {
@@ -474,9 +505,87 @@ async function fetchInviteInfo(code) {
     } catch (e) { return null; }
 }
 
-function isServerAgeRestricted(guildInfo) {
-    if (!guildInfo) return false;
-    return guildInfo.guild?.nsfw_level === 1 || guildInfo.guild?.nsfw_level === 3;
+async function analyzeLinkWithAI(url, pageContent) {
+    const prompt = `You are a security classifier. Analyze the following link and its page content. Determine if the destination is:
+- A scam (phishing, fake giveaway, malware, fake Discord nitro, etc.)
+- 18+ / adult content (pornography, NSFW, explicit material)
+- Safe (normal website, game, social media, etc.)
+
+URL: ${url}
+
+Page title: ${pageContent.title || 'No title'}
+Page description: ${pageContent.description || 'No description'}
+First 500 chars of body: ${(pageContent.body || '').substring(0, 500)}
+
+Respond with exactly one word: "SCAM", "ADULT", or "SAFE". Do not add any extra text.`;
+
+    try {
+        const completion = await groq.chat.completions.create({
+            messages: [{ role: "system", content: "You are a strict content classifier." }, { role: "user", content: prompt }],
+            model: "llama-3.3-70b-versatile",
+            temperature: 0.1,
+            max_tokens: 10,
+        });
+        const result = completion.choices[0]?.message?.content?.trim().toUpperCase();
+        if (result === "SCAM" || result === "ADULT" || result === "SAFE") return result;
+        return "SAFE";
+    } catch (e) {
+        console.error("AI link analysis failed:", e);
+        return "SAFE";
+    }
+}
+
+async function fetchPageMetadata(url) {
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(url, { signal: controller.signal, headers: { 'User-Agent': 'Mozilla/5.0' } });
+        clearTimeout(timeout);
+        if (!res.ok) return { title: null, description: null, body: null };
+        const html = await res.text();
+        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+        const descMatch = html.match(/<meta name="description" content="([^"]+)"/i);
+        const bodyText = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                             .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+                             .replace(/<[^>]*>/g, ' ')
+                             .replace(/\s+/g, ' ')
+                             .trim();
+        return {
+            title: titleMatch ? titleMatch[1] : null,
+            description: descMatch ? descMatch[1] : null,
+            body: bodyText.substring(0, 1000)
+        };
+    } catch (e) {
+        return { title: null, description: null, body: null };
+    }
+}
+
+async function applyPunishment(guild, member, offenseCount, reason) {
+    const punishment = getPunishmentForOffense(offenseCount);
+    let actionPerformed = false;
+    let actionDetail = "";
+    try {
+        if (punishment.type === 'timeout') {
+            if (member.moderatable) {
+                await member.timeout(punishment.duration * 1000, reason);
+                actionPerformed = true;
+                actionDetail = `timed out for ${punishment.label}`;
+            } else {
+                actionDetail = `could not timeout (role hierarchy)`;
+            }
+        } else if (punishment.type === 'ban') {
+            if (member.bannable) {
+                await member.ban({ reason });
+                actionPerformed = true;
+                actionDetail = `banned permanently`;
+            } else {
+                actionDetail = `could not ban (role hierarchy)`;
+            }
+        }
+    } catch (e) {
+        actionDetail = `failed: ${e.message}`;
+    }
+    return { actionPerformed, actionDetail, punishment };
 }
 
 client.once(Events.ClientReady, async c => {
@@ -494,37 +603,72 @@ client.on(Events.MessageCreate, async (message) => {
     const config = message.guildId ? getSecurityConfig(message.guildId) : null;
     if (config?.logMessages && message.guildId) saveMessageToFile(message);
 
-    const inviteCode = extractDiscordInviteCode(message.content);
-    if (inviteCode && message.guild && message.member) {
-        const inviteInfo = await fetchInviteInfo(inviteCode);
-        if (inviteInfo && isServerAgeRestricted(inviteInfo)) {
-            const timeouts = [
-                { seconds: 3600, label: '1 Hour' },
-                { seconds: 21600, label: '6 Hours' },
-                { seconds: 43200, label: '12 Hours' },
-                { seconds: 86400, label: '24 Hours' }
-            ];
-            const row = new ActionRowBuilder();
-            for (const t of timeouts) {
-                row.addComponents(new ButtonBuilder().setCustomId(`timeout_${t.seconds}_${message.author.id}_${message.id}`).setLabel(`Timeout ${t.label}`).setStyle(ButtonStyle.Warning));
-            }
-            row.addComponents(new ButtonBuilder().setCustomId(`delete_${message.id}`).setLabel('Delete Message').setStyle(ButtonStyle.Secondary));
+    const content = message.content;
+    const urls = content.match(/(https?:\/\/[^\s]+)/g) || [];
+    let shouldPunish = false;
+    let verdict = null;
+    let targetUrl = null;
 
-            const embed = new EmbedBuilder()
-                .setColor(0xef4444)
-                .setTitle('Age-Restricted Server Link Detected')
-                .setDescription(`${message.author} posted a link to an 18+ server.\n\n**Link:** ${message.content}\n**Target Server:** ${inviteInfo.guild?.name || 'Unknown'}`)
-                .setFooter({ text: 'Select a timeout duration or delete the message.' })
-                .setTimestamp();
-
-            await message.reply({ embeds: [embed], components: [row] });
-            if (logChannel) {
-                const logEmbed = new EmbedBuilder().setColor(0xef4444).setTitle('NSFW Invite Detected')
-                    .setDescription(`User: ${message.author.tag}\nServer: ${message.guild.name}\nChannel: #${message.channel.name}\nInvite: ${message.content}`).setTimestamp();
-                await logChannel.send({ embeds: [logEmbed] });
+    for (const url of urls) {
+        if (url.includes('discord.gg/') || url.includes('discord.com/invite/')) {
+            const code = extractDiscordInviteCode(url);
+            if (code) {
+                const inviteInfo = await fetchInviteInfo(code);
+                if (inviteInfo && (inviteInfo.guild?.nsfw_level === 1 || inviteInfo.guild?.nsfw_level === 3)) {
+                    shouldPunish = true;
+                    verdict = "ADULT (Discord 18+ server)";
+                    targetUrl = url;
+                    break;
+                }
             }
-            return;
+        } else {
+            const metadata = await fetchPageMetadata(url);
+            const analysis = await analyzeLinkWithAI(url, metadata);
+            if (analysis === "SCAM" || analysis === "ADULT") {
+                shouldPunish = true;
+                verdict = analysis === "SCAM" ? "SCAM" : "ADULT (AI detected)";
+                targetUrl = url;
+                break;
+            }
         }
+    }
+
+    if (shouldPunish && message.guild && message.member) {
+        const offenseCount = getUserOffenseCount(message.guild.id, message.author.id);
+        const newCount = incrementOffense(message.guild.id, message.author.id);
+        const { actionPerformed, actionDetail, punishment } = await applyPunishment(message.guild, message.member, newCount, `Posted ${verdict} link: ${targetUrl}`);
+
+        const embed = new EmbedBuilder()
+            .setColor(actionPerformed ? 0xef4444 : 0xf59e0b)
+            .setTitle('⚠️ Malicious Link Detected')
+            .setDescription(`${message.author} posted a link classified as **${verdict}**.`)
+            .addFields(
+                { name: 'Link', value: targetUrl, inline: false },
+                { name: 'Offense Count', value: `${newCount} / 4`, inline: true },
+                { name: 'Action Taken', value: actionDetail || (punishment.type === 'timeout' ? `Timed out for ${punishment.label}` : punishment.type === 'ban' ? 'Banned' : 'None'), inline: true }
+            )
+            .setTimestamp();
+
+        await message.reply({ embeds: [embed] });
+        await message.delete().catch(() => {});
+        addLog('ACTION', message.guild.id, `${verdict} link from ${message.author.tag} -> ${actionDetail}`);
+        saveModerationAction({
+            type: punishment.type,
+            guildId: message.guild.id,
+            userId: message.author.id,
+            userName: message.author.tag,
+            reason: `Posted ${verdict} link: ${targetUrl}`,
+            duration: punishment.duration,
+            moderator: 'AutoMod',
+            offenseCount: newCount
+        });
+        if (logChannel) {
+            const logEmbed = new EmbedBuilder().setColor(0xef4444).setTitle('Auto-Mod Action')
+                .setDescription(`User: ${message.author.tag}\nServer: ${message.guild.name}\nChannel: #${message.channel.name}\nLink: ${targetUrl}\nVerdict: ${verdict}\nAction: ${actionDetail}\nOffense #${newCount}`)
+                .setTimestamp();
+            await logChannel.send({ embeds: [logEmbed] });
+        }
+        return;
     }
 
     const isDM = !message.guild;
@@ -537,7 +681,7 @@ client.on(Events.MessageCreate, async (message) => {
         return;
     }
 
-    const content = message.content.trim();
+    const msgContent = message.content.trim();
     const sessionKey = getSessionKey(message);
     let history = conversationHistory.get(sessionKey) || [];
 
@@ -549,8 +693,8 @@ client.on(Events.MessageCreate, async (message) => {
             contextMessages.push({ role: "assistant", content: entry.bot });
         }
         let additionalContext = "";
-        if (isInvestigationRequest(content) && message.guildId) {
-            const userIdMatch = content.match(/<@!?(\d+)>/) || content.match(/user (\S+)/i);
+        if (isInvestigationRequest(msgContent) && message.guildId) {
+            const userIdMatch = msgContent.match(/<@!?(\d+)>/) || msgContent.match(/user (\S+)/i);
             if (userIdMatch) {
                 let userId = userIdMatch[1];
                 if (!userId.match(/^\d+$/)) {
@@ -571,13 +715,13 @@ client.on(Events.MessageCreate, async (message) => {
         const messages = [
             { role: "system", content: SYSTEM_PROMPT + additionalContext },
             ...contextMessages,
-            { role: "user", content }
+            { role: "user", content: msgContent }
         ];
         const completion = await groq.chat.completions.create({ messages, model: "llama-3.3-70b-versatile", temperature: 0.7, max_tokens: 2000 });
         const reply = completion.choices[0]?.message?.content;
         if (!reply) return;
-        await saveConversationToDiscord(content, reply, message.channelId, message.guildId);
-        if (isExplicitScriptRequest(content)) {
+        await saveConversationToDiscord(msgContent, reply, message.channelId, message.guildId);
+        if (isExplicitScriptRequest(msgContent)) {
             const fileData = extractFileContent(reply);
             if (fileData.hasFile && fileData.code?.length > 50) {
                 let clean = fileData.code.replace(/```\w*\n?/g,'').replace(/```\n?/g,'');
@@ -590,7 +734,7 @@ client.on(Events.MessageCreate, async (message) => {
             const chunks = reply.length > 1900 ? reply.match(/[\s\S]{1,1900}/g) : [reply];
             for (const chunk of chunks) await message.reply(chunk);
         }
-        history.push({ user: content, bot: reply, timestamp: Date.now() });
+        history.push({ user: msgContent, bot: reply, timestamp: Date.now() });
         if (history.length > 30) history = history.slice(-30);
         conversationHistory.set(sessionKey, history);
     } catch (err) {
@@ -606,51 +750,6 @@ client.on(Events.MessageDelete, async (message) => {
         const auditLog = await message.guild.fetchAuditLogs({ type: 72, limit: 1 }).catch(() => null);
         const deleter = auditLog?.entries.first()?.executor;
         await saveDeletedMessageToDiscord(message, deleter);
-    }
-});
-
-client.on(Events.InteractionCreate, async interaction => {
-    if (!interaction.isButton()) return;
-    const parts = interaction.customId.split('_');
-    const action = parts[0];
-
-    if (!interaction.memberPermissions?.has('ModerateMembers')) {
-        return interaction.reply({ content: 'You need **Moderate Members** permission to use timeout.', ephemeral: true });
-    }
-
-    if (action === 'timeout') {
-        const durationSec = parseInt(parts[1]);
-        const userId = parts[2];
-        const target = await interaction.guild.members.fetch(userId).catch(() => null);
-        if (!target) return interaction.reply({ content: 'User not found.', ephemeral: true });
-        if (!target.moderatable) return interaction.reply({ content: 'I cannot timeout that user (role hierarchy issue).', ephemeral: true });
-        const ms = durationSec * 1000;
-        await target.timeout(ms, 'Posted link to an 18+ server');
-        await interaction.reply({ content: `✅ Timed out ${target.user.tag} for ${durationSec / 3600} hours.`, ephemeral: true });
-        addLog('ACTION', interaction.guild.id, `Timed out ${target.user.tag} for ${durationSec}s (NSFW invite)`);
-        saveModerationAction({
-            type: 'timeout',
-            guildId: interaction.guild.id,
-            userId: target.id,
-            userName: target.user.tag,
-            reason: 'Posted 18+ server invite',
-            duration: durationSec,
-            moderator: interaction.user.tag
-        });
-        await interaction.message.edit({ components: [] });
-    }
-    else if (action === 'delete') {
-        const messageId = parts[1];
-        const channel = interaction.channel;
-        const msg = await channel.messages.fetch(messageId).catch(() => null);
-        if (msg) {
-            await msg.delete();
-            await interaction.reply({ content: '🗑️ Message deleted.', ephemeral: true });
-            addLog('ACTION', interaction.guild.id, `Deleted NSFW invite message in #${channel.name}`);
-            await interaction.message.edit({ components: [] });
-        } else {
-            await interaction.reply({ content: 'Message already deleted.', ephemeral: true });
-        }
     }
 });
 
