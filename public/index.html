@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>SERF/X · Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0a0a0f;color:#e4e4e7;font-family:'Inter',sans-serif;font-size:14px;height:100vh;overflow:hidden}
+  
+  .app{display:flex;height:100vh}
+  .sidebar{width:260px;background:#11111a;border-right:1px solid #1f1f2a;display:flex;flex-direction:column;flex-shrink:0}
+  .logo{padding:20px 24px;border-bottom:1px solid #1f1f2a;margin-bottom:20px}
+  .logo h1{font-size:20px;font-weight:700;background:linear-gradient(135deg,#fff,#a855f7);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .logo p{font-size:11px;color:#52525b;margin-top:4px}
+  
+  .nav-item{display:flex;align-items:center;gap:12px;padding:10px 20px;margin:4px 12px;border-radius:10px;cursor:pointer;color:#71717a;transition:all 0.2s}
+  .nav-item:hover{background:#1f1f2a;color:#e4e4e7}
+  .nav-item.active{background:#1f1f2a;color:#a855f7}
+  .nav-icon{width:20px;text-align:center}
+  
+  .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  .header{height:60px;border-bottom:1px solid #1f1f2a;display:flex;align-items:center;justify-content:space-between;padding:0 24px;background:#0f0f14}
+  .header h2{font-size:18px;font-weight:600}
+  .user{display:flex;align-items:center;gap:12px;cursor:pointer;padding:6px 12px;border-radius:8px;background:#1f1f2a}
+  .user span{font-size:13px}
+  
+  .content{flex:1;overflow-y:auto;padding:24px}
+  
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+  .stat-card{background:#11111a;border:1px solid #1f1f2a;border-radius:12px;padding:20px}
+  .stat-value{font-size:32px;font-weight:700;color:#fff}
+  .stat-label{font-size:12px;color:#71717a;margin-top:6px}
+  
+  .card{background:#11111a;border:1px solid #1f1f2a;border-radius:12px;padding:20px;margin-bottom:20px}
+  .card-title{font-size:16px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+  
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+  .server-card{background:#1f1f2a;border-radius:10px;padding:14px;cursor:pointer;transition:all 0.2s}
+  .server-card:hover{background:#2a2a35;transform:translateY(-2px)}
+  .server-name{font-weight:600;margin-bottom:4px}
+  .server-members{font-size:11px;color:#71717a}
+  
+  input,select,textarea{width:100%;padding:10px 14px;background:#1f1f2a;border:1px solid #2a2a35;border-radius:8px;color:#e4e4e7;font-family:inherit;font-size:13px;outline:none}
+  input:focus,select:focus,textarea:focus{border-color:#a855f7}
+  button{background:#a855f7;border:none;padding:10px 20px;border-radius:8px;color:#fff;font-weight:500;cursor:pointer;transition:opacity 0.2s}
+  button:hover{opacity:0.9}
+  .btn-danger{background:#ef4444}
+  .btn-success{background:#10b981}
+  .btn-warning{background:#f59e0b}
+  .btn-secondary{background:#2a2a35}
+  
+  .flex{display:flex;gap:12px;flex-wrap:wrap}
+  .mt-3{margin-top:16px}
+  .mb-3{margin-bottom:16px}
+  .text-center{text-align:center}
+  
+  .timer-inputs{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+  .timer-inputs input{text-align:center}
+  .timer-item{background:#1f1f2a;border-radius:10px;padding:14px;margin-bottom:8px}
+  .timer-name{font-weight:600;margin-bottom:4px}
+  .timer-time{font-size:20px;font-weight:700;color:#10b981;font-family:monospace}
+  
+  .backup-item{background:#1f1f2a;border-radius:10px;padding:14px;margin-bottom:8px}
+  .backup-name{font-family:monospace;font-size:12px;margin-bottom:8px;color:#a855f7}
+  .backup-stats{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:#71717a;margin-bottom:12px}
+  
+  .log-entry{padding:12px;border-bottom:1px solid #1f1f2a}
+  .log-time{font-size:10px;color:#52525b;margin-top:4px}
+  .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;margin-right:8px}
+  .badge-info{background:#3b82f6;color:#fff}
+  .badge-alert{background:#ef4444;color:#fff}
+  .badge-action{background:#10b981;color:#fff}
+  
+  .error{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px;color:#ef4444}
+  .success{background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:12px;color:#10b981}
+  .warning{background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:12px;color:#f59e0b}
+  
+  .login-screen{position:fixed;inset:0;background:#0a0a0f;display:flex;align-items:center;justify-content:center;z-index:1000}
+  .login-card{background:#11111a;border:1px solid #1f1f2a;border-radius:20px;padding:40px;width:360px}
+  .login-card h2{font-size:24px;margin-bottom:8px}
+  .login-card p{color:#71717a;margin-bottom:24px}
+  .hidden{display:none}
+  
+  @media (max-width: 768px){
+    .sidebar{position:fixed;left:-260px;z-index:100;transition:left 0.3s;height:100vh}
+    .sidebar.open{left:0}
+    .stats{grid-template-columns:repeat(2,1fr)}
+    .menu-toggle{display:block;background:transparent;border:none;font-size:24px;cursor:pointer;margin-right:12px}
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99;display:none}
+    .overlay.open{display:block}
+  }
+  @media (min-width: 769px){.menu-toggle,.overlay{display:none}}
+</style>
+</head>
+<body>
+
+<div class="overlay" id="overlay" onclick="closeSidebar()"></div>
+
+<div class="app">
+  <div class="sidebar" id="sidebar">
+    <div class="logo">
+      <h1>SERF/X</h1>
+      <p>Server Management</p>
+    </div>
+    <div class="nav-item" onclick="loadPage('dashboard');closeSidebar()">
+      <span class="nav-icon">📊</span> Dashboard
+    </div>
+    <div class="nav-item" onclick="loadPage('servers');closeSidebar()">
+      <span class="nav-icon">🖥️</span> Servers
+    </div>
+    <div class="nav-item" onclick="loadPage('backups');closeSidebar()">
+      <span class="nav-icon">💾</span> Backups
+    </div>
+    <div class="nav-item" onclick="loadPage('security');closeSidebar()">
+      <span class="nav-icon">🛡️</span> Security
+    </div>
+    <div class="nav-item" onclick="loadPage('timers');closeSidebar()">
+      <span class="nav-icon">⏰</span> Timers
+    </div>
+    <div class="nav-item" onclick="loadPage('logs');closeSidebar()">
+      <span class="nav-icon">📋</span> Logs
+    </div>
+    <div class="nav-item" onclick="loadPage('announce');closeSidebar()">
+      <span class="nav-icon">📢</span> Announce
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="header">
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+        <h2 id="page-title">Dashboard</h2>
+      </div>
+      <div class="user" onclick="toggleDropdown()">
+        <span>👤 Admin</span>
+        <span>▼</span>
+      </div>
+      <div id="dropdown" style="display:none;position:absolute;bottom:-40px;right:24px;background:#1f1f2a;border-radius:8px;padding:8px;z-index:10">
+        <div onclick="logout()" style="padding:6px 12px;cursor:pointer;color:#ef4444">Log Out</div>
+      </div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<div id="login-screen" class="login-screen">
+  <div class="login-card">
+    <h2>SERF/X</h2>
+    <p>Enter your dashboard password</p>
+    <input type="password" id="secret-input" placeholder="Secret">
+    <div id="login-error" style="color:#ef4444;margin-top:12px;font-size:12px"></div>
+    <button onclick="login()" style="margin-top:20px;width:100%">Login</button>
+  </div>
+</div>
+
+<script>
+let token = null;
+let currentGuildId = null;
+let currentConfig = null;
+
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('overlay').classList.toggle('open')}
+function closeSidebar(){document.getElementById('sidebar').classList.remove('open');document.getElementById('overlay').classList.remove('open')}
+function toggleDropdown(){const d=document.getElementById('dropdown');d.style.display=d.style.display==='none'?'block':'none'}
+
+async function login(){
+  const secret=document.getElementById('secret-input').value;
+  const errDiv=document.getElementById('login-error');
+  if(!secret){errDiv.textContent='Enter secret';return}
+  try{
+    const res=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret})});
+    if(res.ok){const data=await res.json();token=data.token;document.getElementById('login-screen').classList.add('hidden');loadPage('dashboard')}
+    else errDiv.textContent='Invalid secret'
+  }catch(e){errDiv.textContent='Connection error'}
+}
+
+function logout(){token=null;document.getElementById('login-screen').classList.remove('hidden');closeSidebar()}
+
+async function apiFetch(endpoint,options={}){
+  const res=await fetch(endpoint,{...options,headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json',...options.headers}});
+  if(res.status===401)logout();
+  return res
+}
+
+async function loadPage(page){
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  if(event?.target.closest('.nav-item'))event.target.closest('.nav-item').classList.add('active');
+  const titles={dashboard:'Dashboard',servers:'Servers',backups:'Backups',security:'Security',timers:'Timers',logs:'Audit Logs',announce:'Announcements'};
+  document.getElementById('page-title').innerText=titles[page]||page;
+  document.getElementById('content').innerHTML='<div class="text-center" style="padding:40px">Loading...</div>';
+  if(page==='dashboard')await loadDashboard();
+  else if(page==='servers')await loadServers();
+  else if(page==='backups')await loadBackups();
+  else if(page==='security')await loadSecurity();
+  else if(page==='timers')await loadTimers();
+  else if(page==='logs')await loadLogs();
+  else if(page==='announce')await loadAnnounce();
+}
+
+async function loadDashboard(){
+  try{
+    const res=await apiFetch('/api/status');
+    const s=await res.json();
+    document.getElementById('content').innerHTML=`
+      <div class="stats">
+        <div class="stat-card"><div class="stat-value">${s.guilds||0}</div><div class="stat-label">Servers</div></div>
+        <div class="stat-card"><div class="stat-value">${Math.floor((s.uptime||0)/3600)}h</div><div class="stat-label">Uptime</div></div>
+        <div class="stat-card"><div class="stat-value">${s.memoryMB||0}MB</div><div class="stat-label">Memory</div></div>
+        <div class="stat-card"><div class="stat-value">${s.timers||0}</div><div class="stat-label">Timers</div></div>
+      </div>
+      <div class="card"><div class="card-title">🤖 Bot Status</div><p>Tag: ${s.tag||'N/A'}</p><p>Status: ${s.ready?'✅ Online':'❌ Offline'}</p></div>
+      <div class="card"><div class="card-title">Quick Actions</div><div class="flex"><button onclick="loadPage('servers')">Servers</button><button onclick="loadPage('backups')">Backups</button><button onclick="loadPage('timers')">Timers</button></div></div>
+    `;
+  }catch(e){document.getElementById('content').innerHTML=`<div class="error">Error: ${e.message}</div>`}
+}
+
+async function loadServers(){
+  try{
+    const res=await apiFetch('/api/guilds');
+    const guilds=await res.json();
+    if(!guilds||guilds.length===0){
+      document.getElementById('content').innerHTML=`<div class="error">Bot not in any servers.</div>`;
+      return
+    }
+    document.getElementById('content').innerHTML=`<h3 style="margin-bottom:16px">My Servers (${guilds.length})</h3><div class="grid" id="server-grid"></div>`;
+    const grid=document.getElementById('server-grid');
+    guilds.forEach(g=>{grid.innerHTML+=`<div class="server-card" onclick="selectServer('${g.id}')"><div class="server-name">${escapeHtml(g.name)}</div><div class="server-members">${g.members} members</div></div>`});
+  }catch(e){document.getElementById('content').innerHTML=`<div class="error">Error: ${e.message}</div>`}
+}
+
+async function loadBackups(){
+  try{
+    const res=await apiFetch('/api/guilds');
+    const guilds=await res.json();
+    document.getElementById('content').innerHTML=`
+      <h3 style="margin-bottom:16px">💾 Backup Manager</h3>
+      <div class="card"><select id="backup-guild" style="margin-bottom:12px"><option value="">Select Server</option>${guilds.map(g=>`<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')}</select><button onclick="createBackup()" class="btn-success">Create Backup</button><div id="backup-result" class="mt-3"></div></div>
+      <div class="card"><div class="card-title">Backup History</div><div id="backups-list"></div></div>
+    `;
+  }catch(e){document.getElementById('content').innerHTML=`<div class="error">Error: ${e.message}</div>`}
+}
+
+async function loadBackupsForGuild(guildId){
+  if(!guildId)return;
+  try{
+    const res=await apiFetch(`/api/guilds/${guildId}/backups`);
+    const backups=await res.json();
+    const listDiv=document.getElementById('backups-list');
+    if(!backups||backups.length===0){listDiv.innerHTML='<div class="success">No backups yet</div>';return}
+    listDiv.innerHTML='';
+    for(const b of backups){
+      const date=new Date(b.createdAt);
+      listDiv.innerHTML+=`
+        <div class="backup-item">
+          <div class="backup-name">📀 ${b.id}</div>
+          <div class="backup-stats"><span>📅 ${date.toLocaleString()}</span><span>📁 ${b.size} MB</span><span>📝 ${b.messages} msgs</span><span>🎭 ${b.roles} roles</span><span>📺 ${b.channels} ch</span></div>
+          <div class="flex"><button onclick="restoreBackup('${b.id}')" class="btn-warning">Restore</button><button onclick="deleteBackup('${b.id}')" class="btn-danger">Delete</button></div>
+        </div>
+      `;
+    }
+  }catch(e){document.getElementById('backups-list').innerHTML=`<div class="error">Error: ${e.message}</div>`}
+}
+
+async function createBackup(){
+  const guildId=document.getElementById('backup-guild').value;
+  const resultDiv=document.getElementById('backup-result');
+  if(!guildId){resultDiv.innerHTML='<div class="error">Select a server</div>';return}
+  resultDiv.innerHTML='<div class="success">Creating backup...</div>';
+  try{
+    const res=await apiFetch(`/api/guilds/${guildId}/backup`,{method:'POST'});
+    const data=await res.json();
+    if(data.ok){resultDiv.innerHTML=`<div class="success">✅ Backup created! ${data.messages} msgs, ${data.roles} roles</div>`;loadBackupsForGuild(guildId);setTimeout(()=>resultDiv.innerHTML='',3000)}
+    else resultDiv.innerHTML=`<div class="error">${data.error}</div>`
+  }catch(e){resultDiv.innerHTML=`<div class="error">Error: ${e.message}</div>`}
+}
+
+async function restoreBackup(backupId){
+  if(!confirm('⚠️ WARNING: This will overwrite current server settings. Continue?'))return;
+  const guildId=document.getElementById('backup-guild').value;
+  const resultDiv=document.getElementById('backup-result');
+  resultDiv.innerHTML='<div class="warning">Restoring... This may take a moment.</div>';
+  try{
+    const res=await apiFetch(`/api/guilds/${guildId}/restore/${backupId}`,{method:'POST'});
+    const data=await res.json();
+    if(data.success)resultDiv.innerHTML=`<div class="success">✅ Restored! ${data.results.roles.created+data.results.roles.updated} roles, ${data.results.channels.created+data.results.channels.updated} channels</div>`;
+    else resultDiv.innerHTML=`<div class="error">Failed: ${data.error}</div>`
+  }catch(e){resultDiv.innerHTML=`<div class="error">Error: ${e.message}</div>`}
+}
+
+async function deleteBackup(backupId){
+  if(!confirm(`Delete backup ${backupId}?`))return;
+  try{await apiFetch(`/api/backup/${backupId}`,{method:'DELETE'});loadBackupsForGuild(document.getElementById('backup-guild').value)}catch(e){}
+}
+
+async function loadSecurity(){
+  try{
+    const res=await apiFetch('/api/guilds');
+    const guilds=await res.json();
+    document.getElementById('content').innerHTML=`
+      <h3 style="margin-bottom:16px">🛡️ Security Settings</h3>
+      <div class="card"><select id="security-guild" onchange="loadSecurityConfig()"><option value="">Select Server</option>${guilds.map(g=>`<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')}</select></div>
+      <div id="security-panel" class="card" style="display:none"><div id="security-settings"></div><button onclick="saveSecurityConfig()" class="btn-success mt-3">Save Settings</button><div id="security-result" class="mt-3"></div></div>
+    `;
+  }catch(e){document.getElementById('content').innerHTML=`<div class="error">Error: ${e.message}</div>`}
+}
+
+async function loadSecurityConfig(){
+  const guildId=document.getElementById('security-guild').value;
+  if(!guildId)return;
+  currentGuildId=guildId;
+  document.getElementById('security-panel').style.display='block';
+  const res=await apiFetch(`/api/security/${guildId}`);
+  currentConfig=await res.json();
+  document.getElementById('security-settings').innerHTML=`
+    <div class="flex" style="justify-content:space-between;padding:10px 0"><span>🛡️ Anti-Raid</span><div class="toggle ${currentConfig.antiRaid?'active':''}" onclick="toggleSetting('antiRaid')"></div></div>
+    <div class="flex" style="justify-content:space-between;padding:10px 0"><span>💣 Anti-Nuke</span><div class="toggle ${currentConfig.antiNuke?'active':''}" onclick="toggleSetting('antiNuke')"></div></div>
+    <div class="flex" style="justify-content:space-between;padding:10px 0"><span>🚨 Raid Threshold (${currentConfig.raidThreshold})</span><input type="range" min="5" max="20" value="${currentConfig.raidThreshold}" id="raidThreshold" oninput="updateThreshold()" style="width:150px"></div>
+    <div class="flex" style="justify-content:space-between;padding:10px 0"><span>⚠️ Nuke Threshold (${currentConfig.nukeThreshold})</span><input type="range" min="3" max="15" value="${currentConfig.nukeThreshold}" id="nukeThreshold" oninput="updateNuke()" style="width:150px"></div>
+    <div class="flex" style="justify-content:space-between;padding:10px 0"><span>🔇 Mute on Raid</span><div class="toggle ${currentConfig.muteOnRaid?'active':''}" onclick="toggleSetting('muteOnRaid')"></div></div>
+    <div class="flex" style="justify-content:space-between;padding:10px 0"><span>💾 Auto Backup</span><div class="toggle ${currentConfig.autoBackup?'active':''}" onclick="toggleSetting('autoBackup')"></div></div>
+  `;
+}
+
+function toggleSetting(s){if(currentConfig){currentConfig[s]=!currentConfig[s];const t=event.target;currentConfig[s]?t.classList.add('active'):t.classList.remove('active')}}
+function updateThreshold(){const v=document.getElementById('raidThreshold').value;if(currentConfig)currentConfig.raidThreshold=parseInt(v)}
+function updateNuke(){const v=document.getElementById('nukeThreshold').value;if(currentConfig)currentConfig.nukeThreshold=parseInt(v)}
+
+async function saveSecurityConfig(){
+  if(!currentConfig||!currentGuildId)return;
+  const resultDiv=document.getElementById('security-result');
+  resultDiv.innerHTML='<div class="success">Saving...</div>';
+  try{await apiFetch(`/api/security/${currentGuildId}`,{method:'POST',body:JSON.stringify(currentConfig)});resultDiv.innerHTML='<div class="success">✅ Settings saved!</div>';setTimeout(()=>resultDiv.innerHTML='',2000)}catch(e){resultDiv.innerHTML=`<div class="error">Error: ${e.message}</div>`}
+}
+
+async function loadTimers(){
+  try{
+    const timersRes=await apiFetch('/api/timers');
+    const timers=await timersRes.json();
+    const guildsRes=await apiFetch('/api/guilds');
+    const guilds=await guildsRes.json();
+    document.getElementById('content').innerHTML=`
+      <h3 style="margin-bottom:16px">⏰ Timer Manager</h3>
+      <div class="card">
+        <input type="text" id="timer-name" placeholder="Timer name" style="margin-bottom:12px">
+        <div class="timer-inputs"><input type="number" id="timer-days" placeholder="Days"><input type="number" id="timer-hours" placeholder="Hours"><input type="number" id="timer-minutes" placeholder="Mins"><input type="number" id="timer-seconds" placeholder="Secs"></div>
+        <select id="timer-server" onchange="loadTimerChannels()" style="margin-bottom:12px"><option value="">Select Server</option>${guilds.map(g=>`<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')}</select>
+        <select id="timer-channel" style="margin-bottom:12px"><option>Select server first</option></select>
+        <input type="text" id="timer-message" placeholder="Completion message (optional)" style="margin-bottom:12px">
+        <button onclick="createTimer()" class="btn-success">Start Timer</button>
+        <div id="timer-result" class="mt-3"></div>
+      </div>
+      <div class="card"><div class="card-title">Active Timers</div><div id="active-timers-list">${timers.length===0?'<div class="success">No active timers</div>':''}</div></div>
+    `;
+    if(timers.length>0){
+      const list=document.getElementById('active-timers-list');
+      list.innerHTML='';
+      for(const t of timers){
+        const sec=Math.floor(t.remaining/1000),d=Math.floor(sec/86400),h=Math.floor((sec%86400)/3600),m=Math.floor((sec%3600)/60),s=sec%60;
+        let str='';if(d)str+=`${d}d `;if(h||d)str+=`${h}h `;if(m||h||d)str+=`${m}m `;str+=`${s}s`;
+        list.innerHTML+=`<div class="timer-item"><div class="timer-name">⏰ ${escapeHtml(t.name)}</div><div class="timer-time">${str}</div><button onclick="stopTimer('${t.id}')" class="btn-danger" style="margin-top:8px">Stop</button></div>`;
+      }
+    }
+  }catch(e){document.getElementById('content').innerHTML=`<div class="error">Error: ${e.message}</div>`}
+}
+
+async function loadTimerChannels(){
+  const gid=document.getElementById('timer-server').value;
+  if(!gid)return;
+  try{const res=await apiFetch(`/api/guilds/${gid}/channels`);const ch=await res.json();document.getElementById('timer-channel').innerHTML=ch.map(c=>`<option value="${c.id}">#${c.name}</option>`).join('')}catch(e){}
+}
+
+async function createTimer(){
+  const name=document.getElementById('timer-name').value;
+  const days=parseInt(document.getElementById('timer-days').value)||0;
+  const hours=parseInt(document.getElementById('timer-hours').value)||0;
+  const mins=parseInt(document.getElementById('timer-minutes').value)||0;
+  const secs=parseInt(document.getElementById('timer-seconds').value)||0;
+  const chId=document.getElementById('timer-channel').value;
+  const msg=document.getElementById('timer-message').value;
+  if(!name){document.getElementById('timer-result').innerHTML='<div class="error">Enter a name</div>';return}
+  if(!chId||chId==='Select server first'){document.getElementById('timer-result').innerHTML='<div class="error">Select a channel</div>';return}
+  const total=(days*86400)+(hours*3600)+(mins*60)+secs;
+  if(total<=0){document.getElementById('timer-result').innerHTML='<div class="error">Enter a duration</div>';return}
+  document.getElementById('timer-result').innerHTML='<div class="success">Creating timer...</div>';
+  try{
+    const res=await apiFetch('/api/timer',{method:'POST',body:JSON.stringify({channelId:chId,durationSeconds:total,name,message:msg})});
+    const data=await res.json();
+    if(data.ok){document.getElementById('timer-result').innerHTML='<div class="success">✅ Timer created!</div>';setTimeout(()=>loadTimers(),1000)}
+    else document.getElementById('timer-result').innerHTML=`<div class="error">${data.error}</div>`
+  }catch(e){document.getElementById('timer-result').innerHTML=`<div class="error">Error: ${e.message}</div>`}
+}
+
+async function stopTimer(id){try{await apiFetch(`/api/timer/${id}`,{method:'DELETE'});loadTimers()}catch(e){}}
+
+async function loadLogs(){
+  try{
+    const res=await apiFetch('/api/logs');
+    const logs=await res.json();
+    document.getElementById('content').innerHTML=`<h3 style="margin-bottom:16px">📋 Audit Logs</h3><div id="logs-list"></div>`;
+    const list=document.getElementById('logs-list');
+    if(!logs||logs.length===0)list.innerHTML='<div class="success">No logs yet</div>';
+    else logs.forEach(l=>{list.innerHTML+=`<div class="log-entry"><span class="badge badge-${l.type.toLowerCase()}">${l.type}</span><span>${escapeHtml(l.description)}</span><div class="log-time">${new Date(l.ts).toLocaleString()}</div></div>`});
+  }catch(e){document.getElementById('content').innerHTML=`<div class="error">Error: ${e.message}</div>`}
+}
+
+async function loadAnnounce(){
+  try{
+    const res=await apiFetch('/api/guilds');
+    const guilds=await res.json();
+    document.getElementById('content').innerHTML=`
+      <h3 style="margin-bottom:16px">📢 Announcements</h3>
+      <div class="card">
+        <select id="announce-guild" onchange="loadAnnounceChannels()" style="margin-bottom:12px"><option value="">Select Server</option>${guilds.map(g=>`<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')}</select>
+        <select id="announce-channel" style="margin-bottom:12px"><option>Select server first</option></select>
+        <textarea id="announce-content" rows="4" placeholder="Enter your announcement..." style="margin-bottom:12px"></textarea>
+        <button onclick="sendAnnouncement()" class="btn-success">Send Announcement</button>
+        <div id="announce-result" class="mt-3"></div>
+      </div>
+    `;
+  }catch(e){document.getElementById('content').innerHTML=`<div class="error">Error: ${e.message}</div>`}
+}
+
+async function loadAnnounceChannels(){
+  const gid=document.getElementById('announce-guild').value;
+  if(!gid)return;
+  try{const res=await apiFetch(`/api/guilds/${gid}/channels`);const ch=await res.json();document.getElementById('announce-channel').innerHTML=ch.map(c=>`<option value="${c.id}">#${c.name}</option>`).join('')}catch(e){}
+}
+
+async function sendAnnouncement(){
+  const chId=document.getElementById('announce-channel').value;
+  const content=document.getElementById('announce-content').value;
+  const resultDiv=document.getElementById('announce-result');
+  if(!chId||chId==='Select server first'){resultDiv.innerHTML='<div class="error">Select a channel</div>';return}
+  if(!content.trim()){resultDiv.innerHTML='<div class="error">Enter a message</div>';return}
+  resultDiv.innerHTML='<div class="success">Sending...</div>';
+  try{
+    const res=await apiFetch('/api/send',{method:'POST',body:JSON.stringify({channelId:chId,content})});
+    const data=await res.json();
+    if(data.ok){resultDiv.innerHTML='<div class="success">✅ Sent!</div>';document.getElementById('announce-content').value=''}
+    else resultDiv.innerHTML=`<div class="error">${data.error}</div>`
+  }catch(e){resultDiv.innerHTML=`<div class="error">Error: ${e.message}</div>`}
+}
+
+function selectServer(id){
+  currentGuildId=id;
+  loadPage('backups');
+  closeSidebar();
+}
+
+function escapeHtml(s){if(!s)return '';return s.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))}
+
+document.addEventListener('click',e=>{if(!e.target.closest('.user'))document.getElementById('dropdown').style.display='none'});
+
+window.loadPage=loadPage;
+window.loadSecurityConfig=loadSecurityConfig;
+window.loadBackupsForGuild=loadBackupsForGuild;
+window.createBackup=createBackup;
+window.restoreBackup=restoreBackup;
+window.deleteBackup=deleteBackup;
+window.toggleSetting=toggleSetting;
+window.saveSecurityConfig=saveSecurityConfig;
+window.loadTimerChannels=loadTimerChannels;
+window.createTimer=createTimer;
+window.stopTimer=stopTimer;
+window.loadAnnounceChannels=loadAnnounceChannels;
+window.sendAnnouncement=sendAnnouncement;
+window.selectServer=selectServer;
+window.logout=logout;
+window.toggleSidebar=toggleSidebar;
+window.closeSidebar=closeSidebar;
+</script>
+</body>
+</html>
