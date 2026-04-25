@@ -50,7 +50,6 @@ if (!fs.existsSync('./public')) fs.mkdirSync('./public', { recursive: true });
 
 let logChannel = null;
 
-// --- Moderation actions storage ---
 function loadModerationActions() {
     if (!fs.existsSync(MODERATION_FILE)) return [];
     try {
@@ -65,12 +64,10 @@ function saveModerationAction(action) {
         ...action,
         timestamp: new Date().toISOString()
     });
-    // Keep last 1000 actions
     if (actions.length > 1000) actions.pop();
     fs.writeFileSync(MODERATION_FILE, JSON.stringify(actions, null, 2));
 }
 
-// --- Helper functions (unchanged from previous version) ---
 function getMessageFilePath(guildId, channelId) {
     const guildDir = path.join(MESSAGES_DIR, guildId);
     if (!fs.existsSync(guildDir)) fs.mkdirSync(guildDir, { recursive: true });
@@ -354,7 +351,13 @@ function getSecurityConfig(guildId) {
             antiRaid: true, antiNuke: true, raidThreshold: 10, nukeThreshold: 5,
             logChannel: null, muteOnRaid: true, dmOnAlert: false,
             autoBackup: true, backupInterval: 60, lastBackup: null,
-            logMessages: true, saveDeletedMessages: true
+            logMessages: true, saveDeletedMessages: true,
+            moderation: {
+                enableKick: true,
+                enableBan: true,
+                timeoutOptions: [60, 300, 600, 3600],
+                defaultTimeout: 60
+            }
         });
     }
     return securityConfig.get(guildId);
@@ -371,7 +374,6 @@ function updateSecurityConfig(guildId, newConfig) {
     return updated;
 }
 
-// Timer system (unchanged)
 function updateAllTimers() {
     for (const [timerId, timer] of activeTimers.entries()) {
         const remaining = timer.endTime - Date.now();
@@ -429,7 +431,6 @@ function getAllTimers() {
     return Array.from(activeTimers.entries()).map(([id, t]) => ({ id, name: t.name, remaining: Math.max(0, t.endTime - Date.now()), channelId: t.channelId }));
 }
 
-// AI prompt (unchanged)
 const SYSTEM_PROMPT = `You are XZX Bot, a helpful Discord assistant.
 
 BEHAVIOR RULES:
@@ -495,7 +496,6 @@ async function createAndSendFile(code, fileName, extension, message) {
     return fullName;
 }
 
-// --- Helper for invite detection ---
 function extractDiscordInviteCode(content) {
     const match = content.match(/(?:discord\.(?:gg|com\/invite|app\/invite)\/)([a-zA-Z0-9_-]+)/i);
     return match ? match[1] : null;
@@ -515,11 +515,9 @@ async function fetchInviteInfo(code) {
 
 function isServerAgeRestricted(guildInfo) {
     if (!guildInfo) return false;
-    // nsfw_level: 0=DEFAULT, 1=EXPLICIT, 2=SAFE, 3=AGE_RESTRICTED
     return guildInfo.guild?.nsfw_level === 1 || guildInfo.guild?.nsfw_level === 3;
 }
 
-// --- Discord event handlers ---
 client.once(Events.ClientReady, async c => {
     console.log(`XZX Bot online as ${c.user.tag}`);
     if (LOG_CHANNEL_ID) {
@@ -532,38 +530,26 @@ client.on(Events.MessageCreate, async (message) => {
     if (message.author.bot) return;
     if (!message.content?.trim()) return;
 
-    // Save message to local store
     const config = message.guildId ? getSecurityConfig(message.guildId) : null;
     if (config?.logMessages && message.guildId) saveMessageToFile(message);
 
-    // --- MODERATION: Detect invite to 18+ server ---
     const inviteCode = extractDiscordInviteCode(message.content);
     if (inviteCode && message.guild && message.member) {
         const inviteInfo = await fetchInviteInfo(inviteCode);
         if (inviteInfo && isServerAgeRestricted(inviteInfo)) {
-            const row = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`kick_${message.author.id}_${message.id}`)
-                        .setLabel('Kick User')
-                        .setStyle(ButtonStyle.Danger),
-                    new ButtonBuilder()
-                        .setCustomId(`timeout_60_${message.author.id}_${message.id}`)
-                        .setLabel('Timeout 60s')
-                        .setStyle(ButtonStyle.Warning),
-                    new ButtonBuilder()
-                        .setCustomId(`timeout_3600_${message.author.id}_${message.id}`)
-                        .setLabel('Timeout 1h')
-                        .setStyle(ButtonStyle.Warning),
-                    new ButtonBuilder()
-                        .setCustomId(`ban_${message.author.id}_${message.id}`)
-                        .setLabel('Ban User')
-                        .setStyle(ButtonStyle.Danger),
-                    new ButtonBuilder()
-                        .setCustomId(`delete_${message.id}`)
-                        .setLabel('Delete Message')
-                        .setStyle(ButtonStyle.Secondary)
-                );
+            const modCfg = getSecurityConfig(message.guild.id).moderation;
+            const row = new ActionRowBuilder();
+            if (modCfg.enableKick) {
+                row.addComponents(new ButtonBuilder().setCustomId(`kick_${message.author.id}_${message.id}`).setLabel('Kick User').setStyle(ButtonStyle.Danger));
+            }
+            for (const dur of modCfg.timeoutOptions) {
+                const label = dur >= 3600 ? `${dur/3600}h` : dur >= 60 ? `${dur/60}m` : `${dur}s`;
+                row.addComponents(new ButtonBuilder().setCustomId(`timeout_${dur}_${message.author.id}_${message.id}`).setLabel(`Timeout ${label}`).setStyle(ButtonStyle.Warning));
+            }
+            if (modCfg.enableBan) {
+                row.addComponents(new ButtonBuilder().setCustomId(`ban_${message.author.id}_${message.id}`).setLabel('Ban User').setStyle(ButtonStyle.Danger));
+            }
+            row.addComponents(new ButtonBuilder().setCustomId(`delete_${message.id}`).setLabel('Delete Message').setStyle(ButtonStyle.Secondary));
 
             const embed = new EmbedBuilder()
                 .setColor(0xef4444)
@@ -581,12 +567,10 @@ client.on(Events.MessageCreate, async (message) => {
                     .setTimestamp();
                 await logChannel.send({ embeds: [logEmbed] });
             }
-            // Do not continue to AI conversation for this message
             return;
         }
     }
 
-    // --- AI conversation logic (only if not handled by moderation) ---
     const isDM = !message.guild;
     const mentioned = message.mentions.has(client.user);
     const isHelpRequest = needsHelp(message.content);
@@ -669,7 +653,6 @@ client.on(Events.MessageDelete, async (message) => {
     }
 });
 
-// --- Interaction handler for moderation buttons ---
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isButton()) return;
     const customId = interaction.customId;
@@ -682,7 +665,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
     if (action === 'kick') {
         const userId = parts[1];
-        const messageId = parts[2];
         const target = await interaction.guild.members.fetch(userId).catch(() => null);
         if (!target) return interaction.reply({ content: 'User not found.', ephemeral: true });
         if (!target.kickable) return interaction.reply({ content: 'I cannot kick that user.', ephemeral: true });
@@ -703,7 +685,6 @@ client.on(Events.InteractionCreate, async interaction => {
     else if (action === 'timeout') {
         const durationSec = parseInt(parts[1]);
         const userId = parts[2];
-        const messageId = parts[3];
         const target = await interaction.guild.members.fetch(userId).catch(() => null);
         if (!target) return interaction.reply({ content: 'User not found.', ephemeral: true });
         if (!target.moderatable) return interaction.reply({ content: 'I cannot timeout that user.', ephemeral: true });
@@ -713,180 +694,4 @@ client.on(Events.InteractionCreate, async interaction => {
         addLog('ACTION', interaction.guild.id, `Timed out ${target.user.tag} for ${durationSec}s`);
         saveModerationAction({
             type: 'timeout',
-            guildId: interaction.guild.id,
-            userId: target.id,
-            userName: target.user.tag,
-            reason: 'Posted 18+ server invite',
-            duration: durationSec,
-            moderator: interaction.user.tag
-        });
-        await interaction.message.edit({ components: [] });
-    }
-    else if (action === 'ban') {
-        const userId = parts[1];
-        const messageId = parts[2];
-        const target = await interaction.guild.members.fetch(userId).catch(() => null);
-        if (!target) return interaction.reply({ content: 'User not found.', ephemeral: true });
-        if (!target.bannable) return interaction.reply({ content: 'I cannot ban that user.', ephemeral: true });
-        await target.ban({ reason: 'Posted link to an 18+ server' });
-        await interaction.reply({ content: `🔨 Banned ${target.user.tag}.`, ephemeral: true });
-        addLog('ACTION', interaction.guild.id, `Banned ${target.user.tag} for NSFW invite`);
-        saveModerationAction({
-            type: 'ban',
-            guildId: interaction.guild.id,
-            userId: target.id,
-            userName: target.user.tag,
-            reason: 'Posted 18+ server invite',
-            duration: null,
-            moderator: interaction.user.tag
-        });
-        await interaction.message.edit({ components: [] });
-    }
-    else if (action === 'delete') {
-        const messageId = parts[1];
-        const channel = interaction.channel;
-        const msg = await channel.messages.fetch(messageId).catch(() => null);
-        if (msg) {
-            await msg.delete();
-            await interaction.reply({ content: '🗑️ Message deleted.', ephemeral: true });
-            addLog('ACTION', interaction.guild.id, `Deleted NSFW invite message in #${channel.name}`);
-            await interaction.message.edit({ components: [] }); // disable buttons
-        } else {
-            await interaction.reply({ content: 'Message already deleted.', ephemeral: true });
-        }
-    }
-});
-
-setInterval(() => {
-    const now = Date.now();
-    for (const [key, history] of conversationHistory.entries()) {
-        const recent = history.filter(e => now - e.timestamp < 7200000);
-        if (recent.length === 0) conversationHistory.delete(key);
-        else if (recent.length !== history.length) conversationHistory.set(key, recent);
-    }
-}, 7200000);
-
-setInterval(updateAllTimers, 1000);
-
-setInterval(async () => {
-    for (const [id, guild] of client.guilds.cache) {
-        const config = getSecurityConfig(id);
-        if (config.autoBackup) {
-            const last = config.lastBackup;
-            const now = Date.now();
-            const intervalMs = (config.backupInterval || 60) * 60 * 1000;
-            if (!last || now - last > intervalMs) {
-                await createFullBackup(guild);
-                config.lastBackup = now;
-                updateSecurityConfig(id, config);
-            }
-        }
-    }
-}, 3600000);
-
-// --- Express dashboard with new moderation endpoints ---
-const app = express();
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-app.use('/api/', rateLimit({ windowMs: 60*1000, max: 60, message: { error: 'Too many requests' } }));
-
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.get('/api/health', (req, res) => res.json({ status: 'ok', bot: client.isReady() }));
-
-app.post('/api/auth', (req, res) => {
-    const { secret } = req.body;
-    if (secret !== DASHBOARD_SECRET) return res.status(403).json({ error: 'Wrong secret' });
-    const token = jwt.sign({ role: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
-    res.json({ token });
-});
-
-function requireAuth(req, res, next) {
-    const auth = req.headers.authorization;
-    const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    try { jwt.verify(token, JWT_SECRET); next(); } catch { res.status(401).json({ error: 'Invalid token' }); }
-}
-
-app.get('/api/status', requireAuth, (req, res) => {
-    res.json({ ready: client.isReady(), tag: client.user?.tag, guilds: client.guilds.cache.size, uptime: process.uptime(), memoryMB: (process.memoryUsage().rss/1024/1024).toFixed(1), timers: getAllTimers().length });
-});
-app.get('/api/guilds', requireAuth, (req, res) => {
-    res.json(client.guilds.cache.map(g => ({ id: g.id, name: g.name, members: g.memberCount, icon: g.iconURL({ size: 64 }) })));
-});
-app.get('/api/guilds/:guildId/channels', requireAuth, (req, res) => {
-    const guild = client.guilds.cache.get(req.params.guildId);
-    if (!guild) return res.status(404).json({ error: 'Guild not found' });
-    res.json(guild.channels.cache.filter(ch => ch.type === ChannelType.GuildText || ch.type === ChannelType.GuildAnnouncement).map(ch => ({ id: ch.id, name: ch.name, type: ch.type })));
-});
-app.post('/api/send', requireAuth, async (req, res) => {
-    const { channelId, content } = req.body;
-    const ch = client.channels.cache.get(channelId);
-    if (!ch) return res.status(404).json({ error: 'Channel not found' });
-    try { await ch.send(content); res.json({ ok: true }); } catch(e) { res.status(500).json({ error: e.message }); }
-});
-app.post('/api/timer', requireAuth, (req, res) => {
-    const { channelId, durationSeconds, name, message } = req.body;
-    if (!channelId || !durationSeconds || !name) return res.status(400).json({ error: 'Missing fields' });
-    const channel = client.channels.cache.get(channelId);
-    if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    const timerId = `timer_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
-    createTimer(timerId, channelId, durationSeconds, name, message || '');
-    res.json({ ok: true, timerId });
-});
-app.get('/api/timers', requireAuth, (req, res) => res.json(getAllTimers()));
-app.delete('/api/timer/:timerId', requireAuth, (req, res) => {
-    if (stopTimer(req.params.timerId)) res.json({ ok: true });
-    else res.status(404).json({ error: 'Timer not found' });
-});
-app.get('/api/logs', requireAuth, (req, res) => {
-    const { guildId, limit=100 } = req.query;
-    let filtered = auditLogs;
-    if (guildId && guildId !== 'undefined') filtered = auditLogs.filter(l => l.guildId === guildId || l.guildId === 'global');
-    res.json(filtered.slice(0, Number(limit)));
-});
-app.get('/api/security/:guildId', requireAuth, (req, res) => res.json(getSecurityConfig(req.params.guildId)));
-app.post('/api/security/:guildId', requireAuth, (req, res) => res.json(updateSecurityConfig(req.params.guildId, req.body)));
-app.post('/api/guilds/:guildId/backup', requireAuth, async (req, res) => {
-    const guild = client.guilds.cache.get(req.params.guildId);
-    if (!guild) return res.status(404).json({ error: 'Guild not found' });
-    const backup = await createFullBackup(guild);
-    res.json({ ok: true, backupId: backup.id, channels: backup.channels.length+backup.categories.length, roles: backup.roles.length, messages: backup.messages.length, createdAt: backup.createdAt });
-});
-app.get('/api/guilds/:guildId/backups', requireAuth, (req, res) => res.json(listBackups(req.params.guildId)));
-app.post('/api/guilds/:guildId/restore/:backupId', requireAuth, async (req, res) => {
-    const guild = client.guilds.cache.get(req.params.guildId);
-    if (!guild) return res.status(404).json({ error: 'Guild not found' });
-    res.json(await restoreFromBackup(guild, req.params.backupId));
-});
-app.delete('/api/backup/:backupId', requireAuth, (req, res) => {
-    if (deleteBackup(req.params.backupId)) res.json({ ok: true });
-    else res.status(404).json({ error: 'Backup not found' });
-});
-
-// --- NEW: Moderation history endpoints ---
-app.get('/api/moderation/actions', requireAuth, (req, res) => {
-    const actions = loadModerationActions();
-    res.json(actions);
-});
-
-app.get('/api/moderation/stats', requireAuth, (req, res) => {
-    const actions = loadModerationActions();
-    const stats = {
-        total: actions.length,
-        kicks: actions.filter(a => a.type === 'kick').length,
-        timeouts: actions.filter(a => a.type === 'timeout').length,
-        bans: actions.filter(a => a.type === 'ban').length,
-        byGuild: {}
-    };
-    for (const a of actions) {
-        if (!stats.byGuild[a.guildId]) stats.byGuild[a.guildId] = 0;
-        stats.byGuild[a.guildId]++;
-    }
-    res.json(stats);
-});
-
-process.on("SIGINT", () => process.exit(0));
-process.on("SIGTERM", () => process.exit(0));
-
-app.listen(PORT, () => console.log(`Dashboard on port ${PORT}`));
-client.login(TOKEN);
+            guildId: interaction.guild.id
