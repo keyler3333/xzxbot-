@@ -4,44 +4,36 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>SERF/X · Dashboard</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   body{background:#0a0a0f;color:#e4e4e7;font-family:'Inter',sans-serif;font-size:14px;height:100vh;overflow:hidden}
-  
   .app{display:flex;height:100vh}
   .sidebar{width:260px;background:#11111a;border-right:1px solid #1f1f2a;display:flex;flex-direction:column;flex-shrink:0}
   .logo{padding:20px 24px;border-bottom:1px solid #1f1f2a;margin-bottom:20px}
   .logo h1{font-size:20px;font-weight:700;background:linear-gradient(135deg,#fff,#a855f7);-webkit-background-clip:text;background-clip:text;color:transparent}
   .logo p{font-size:11px;color:#52525b;margin-top:4px}
-  
   .nav-item{display:flex;align-items:center;gap:12px;padding:10px 20px;margin:4px 12px;border-radius:10px;cursor:pointer;color:#71717a;transition:all 0.2s}
   .nav-item:hover{background:#1f1f2a;color:#e4e4e7}
   .nav-item.active{background:#1f1f2a;color:#a855f7}
   .nav-icon{width:20px;text-align:center}
-  
   .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
   .header{height:60px;border-bottom:1px solid #1f1f2a;display:flex;align-items:center;justify-content:space-between;padding:0 24px;background:#0f0f14}
   .header h2{font-size:18px;font-weight:600}
   .user{display:flex;align-items:center;gap:12px;cursor:pointer;padding:6px 12px;border-radius:8px;background:#1f1f2a}
   .user span{font-size:13px}
-  
   .content{flex:1;overflow-y:auto;padding:24px}
-  
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
   .stat-card{background:#11111a;border:1px solid #1f1f2a;border-radius:12px;padding:20px}
   .stat-value{font-size:32px;font-weight:700;color:#fff}
   .stat-label{font-size:12px;color:#71717a;margin-top:6px}
-  
   .card{background:#11111a;border:1px solid #1f1f2a;border-radius:12px;padding:20px;margin-bottom:20px}
   .card-title{font-size:16px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
-  
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
   .server-card{background:#1f1f2a;border-radius:10px;padding:14px;cursor:pointer;transition:all 0.2s}
   .server-card:hover{background:#2a2a35;transform:translateY(-2px)}
   .server-name{font-weight:600;margin-bottom:4px}
   .server-members{font-size:11px;color:#71717a}
-  
   input,select,textarea{width:100%;padding:10px 14px;background:#1f1f2a;border:1px solid #2a2a35;border-radius:8px;color:#e4e4e7;font-family:inherit;font-size:13px;outline:none}
   input:focus,select:focus,textarea:focus{border-color:#a855f7}
   button{background:#a855f7;border:none;padding:10px 20px;border-radius:8px;color:#fff;font-weight:500;cursor:pointer;transition:opacity 0.2s}
@@ -50,44 +42,48 @@
   .btn-success{background:#10b981}
   .btn-warning{background:#f59e0b}
   .btn-secondary{background:#2a2a35}
-  
   .flex{display:flex;gap:12px;flex-wrap:wrap}
   .mt-3{margin-top:16px}
   .mb-3{margin-bottom:16px}
   .text-center{text-align:center}
-  
   .timer-inputs{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
   .timer-inputs input{text-align:center}
   .timer-item{background:#1f1f2a;border-radius:10px;padding:14px;margin-bottom:8px}
   .timer-name{font-weight:600;margin-bottom:4px}
   .timer-time{font-size:20px;font-weight:700;color:#10b981;font-family:monospace}
-  
   .backup-item{background:#1f1f2a;border-radius:10px;padding:14px;margin-bottom:8px}
   .backup-name{font-family:monospace;font-size:12px;margin-bottom:8px;color:#a855f7}
   .backup-stats{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:#71717a;margin-bottom:12px}
-  
   .log-entry{padding:12px;border-bottom:1px solid #1f1f2a}
   .log-time{font-size:10px;color:#52525b;margin-top:4px}
   .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;margin-right:8px}
   .badge-info{background:#3b82f6;color:#fff}
   .badge-alert{background:#ef4444;color:#fff}
   .badge-action{background:#10b981;color:#fff}
-  
+  .badge-kick{background:#f59e0b;color:#000}
+  .badge-timeout{background:#8b5cf6;color:#fff}
+  .badge-ban{background:#ef4444;color:#fff}
   .error{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px;color:#ef4444}
   .success{background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:12px;color:#10b981}
   .warning{background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:12px;color:#f59e0b}
-  
   .login-screen{position:fixed;inset:0;background:#0a0a0f;display:flex;align-items:center;justify-content:center;z-index:1000}
   .login-card{background:#11111a;border:1px solid #1f1f2a;border-radius:20px;padding:40px;width:360px}
   .login-card h2{font-size:24px;margin-bottom:8px}
   .login-card p{color:#71717a;margin-bottom:24px}
   .hidden{display:none}
-  
+  .toggle-switch{width:50px;height:24px;background:rgba(255,255,255,0.1);border-radius:12px;position:relative;cursor:pointer;flex-shrink:0}
+  .toggle-switch.active{background:#10b981}
+  .toggle-switch::after{content:'';position:absolute;width:20px;height:20px;background:#fff;border-radius:50%;top:2px;left:2px;transition:0.2s}
+  .toggle-switch.active::after{left:28px}
+  .mod-action{background:#1f1f2a;border-radius:10px;padding:12px;margin-bottom:8px}
+  .mod-user{font-weight:700;color:#fff}
+  .mod-reason{font-size:12px;color:#a1a1aa}
+  .mod-duration{font-family:monospace;font-size:12px}
   @media (max-width: 768px){
     .sidebar{position:fixed;left:-260px;z-index:100;transition:left 0.3s;height:100vh}
     .sidebar.open{left:0}
     .stats{grid-template-columns:repeat(2,1fr)}
-    .menu-toggle{display:block;background:transparent;border:none;font-size:24px;cursor:pointer;margin-right:12px}
+    .menu-toggle{display:block;background:transparent;border:none;font-size:24px;cursor:pointer;margin-right:12px;color:#fff}
     .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99;display:none}
     .overlay.open{display:block}
   }
@@ -118,6 +114,9 @@
     </div>
     <div class="nav-item" onclick="loadPage('timers');closeSidebar()">
       <span class="nav-icon">⏰</span> Timers
+    </div>
+    <div class="nav-item" onclick="loadPage('moderation');closeSidebar()">
+      <span class="nav-icon">⚖️</span> Moderation
     </div>
     <div class="nav-item" onclick="loadPage('logs');closeSidebar()">
       <span class="nav-icon">📋</span> Logs
@@ -186,7 +185,7 @@ async function apiFetch(endpoint,options={}){
 async function loadPage(page){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   if(event?.target.closest('.nav-item'))event.target.closest('.nav-item').classList.add('active');
-  const titles={dashboard:'Dashboard',servers:'Servers',backups:'Backups',security:'Security',timers:'Timers',logs:'Audit Logs',announce:'Announcements'};
+  const titles={dashboard:'Dashboard',servers:'Servers',backups:'Backups',security:'Security',timers:'Timers',moderation:'Moderation',logs:'Audit Logs',announce:'Announcements'};
   document.getElementById('page-title').innerText=titles[page]||page;
   document.getElementById('content').innerHTML='<div class="text-center" style="padding:40px">Loading...</div>';
   if(page==='dashboard')await loadDashboard();
@@ -194,6 +193,7 @@ async function loadPage(page){
   else if(page==='backups')await loadBackups();
   else if(page==='security')await loadSecurity();
   else if(page==='timers')await loadTimers();
+  else if(page==='moderation')await loadModeration();
   else if(page==='logs')await loadLogs();
   else if(page==='announce')await loadAnnounce();
 }
@@ -313,24 +313,62 @@ async function loadSecurityConfig(){
   const res=await apiFetch(`/api/security/${guildId}`);
   currentConfig=await res.json();
   document.getElementById('security-settings').innerHTML=`
-    <div class="flex" style="justify-content:space-between;padding:10px 0"><span>🛡️ Anti-Raid</span><div class="toggle ${currentConfig.antiRaid?'active':''}" onclick="toggleSetting('antiRaid')"></div></div>
-    <div class="flex" style="justify-content:space-between;padding:10px 0"><span>💣 Anti-Nuke</span><div class="toggle ${currentConfig.antiNuke?'active':''}" onclick="toggleSetting('antiNuke')"></div></div>
-    <div class="flex" style="justify-content:space-between;padding:10px 0"><span>🚨 Raid Threshold (${currentConfig.raidThreshold})</span><input type="range" min="5" max="20" value="${currentConfig.raidThreshold}" id="raidThreshold" oninput="updateThreshold()" style="width:150px"></div>
-    <div class="flex" style="justify-content:space-between;padding:10px 0"><span>⚠️ Nuke Threshold (${currentConfig.nukeThreshold})</span><input type="range" min="3" max="15" value="${currentConfig.nukeThreshold}" id="nukeThreshold" oninput="updateNuke()" style="width:150px"></div>
-    <div class="flex" style="justify-content:space-between;padding:10px 0"><span>🔇 Mute on Raid</span><div class="toggle ${currentConfig.muteOnRaid?'active':''}" onclick="toggleSetting('muteOnRaid')"></div></div>
-    <div class="flex" style="justify-content:space-between;padding:10px 0"><span>💾 Auto Backup</span><div class="toggle ${currentConfig.autoBackup?'active':''}" onclick="toggleSetting('autoBackup')"></div></div>
+    <div class="flex" style="justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #1f1f2a">
+      <span>🛡️ Anti-Raid</span>
+      <div class="toggle-switch ${currentConfig.antiRaid ? 'active' : ''}" onclick="toggleSetting('antiRaid')"></div>
+    </div>
+    <div class="flex" style="justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #1f1f2a">
+      <span>💣 Anti-Nuke</span>
+      <div class="toggle-switch ${currentConfig.antiNuke ? 'active' : ''}" onclick="toggleSetting('antiNuke')"></div>
+    </div>
+    <div class="flex" style="justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #1f1f2a">
+      <span>🚨 Raid Threshold: <span id="raidThresholdVal">${currentConfig.raidThreshold}</span></span>
+      <input type="range" min="5" max="20" value="${currentConfig.raidThreshold}" id="raidThreshold" oninput="updateThreshold()" style="width:150px">
+    </div>
+    <div class="flex" style="justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #1f1f2a">
+      <span>⚠️ Nuke Threshold: <span id="nukeThresholdVal">${currentConfig.nukeThreshold}</span></span>
+      <input type="range" min="3" max="15" value="${currentConfig.nukeThreshold}" id="nukeThreshold" oninput="updateNuke()" style="width:150px">
+    </div>
+    <div class="flex" style="justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #1f1f2a">
+      <span>🔇 Mute on Raid</span>
+      <div class="toggle-switch ${currentConfig.muteOnRaid ? 'active' : ''}" onclick="toggleSetting('muteOnRaid')"></div>
+    </div>
+    <div class="flex" style="justify-content:space-between;align-items:center;padding:12px 0">
+      <span>💾 Auto Backup</span>
+      <div class="toggle-switch ${currentConfig.autoBackup ? 'active' : ''}" onclick="toggleSetting('autoBackup')"></div>
+    </div>
   `;
 }
 
-function toggleSetting(s){if(currentConfig){currentConfig[s]=!currentConfig[s];const t=event.target;currentConfig[s]?t.classList.add('active'):t.classList.remove('active')}}
-function updateThreshold(){const v=document.getElementById('raidThreshold').value;if(currentConfig)currentConfig.raidThreshold=parseInt(v)}
-function updateNuke(){const v=document.getElementById('nukeThreshold').value;if(currentConfig)currentConfig.nukeThreshold=parseInt(v)}
+function toggleSetting(setting){
+  if(!currentConfig) return;
+  currentConfig[setting] = !currentConfig[setting];
+  const toggle = event.target;
+  if(currentConfig[setting]) toggle.classList.add('active');
+  else toggle.classList.remove('active');
+}
+
+function updateThreshold(){
+  const val = document.getElementById('raidThreshold').value;
+  document.getElementById('raidThresholdVal').innerText = val;
+  if(currentConfig) currentConfig.raidThreshold = parseInt(val);
+}
+
+function updateNuke(){
+  const val = document.getElementById('nukeThreshold').value;
+  document.getElementById('nukeThresholdVal').innerText = val;
+  if(currentConfig) currentConfig.nukeThreshold = parseInt(val);
+}
 
 async function saveSecurityConfig(){
-  if(!currentConfig||!currentGuildId)return;
-  const resultDiv=document.getElementById('security-result');
-  resultDiv.innerHTML='<div class="success">Saving...</div>';
-  try{await apiFetch(`/api/security/${currentGuildId}`,{method:'POST',body:JSON.stringify(currentConfig)});resultDiv.innerHTML='<div class="success">✅ Settings saved!</div>';setTimeout(()=>resultDiv.innerHTML='',2000)}catch(e){resultDiv.innerHTML=`<div class="error">Error: ${e.message}</div>`}
+  if(!currentConfig||!currentGuildId) return;
+  const resultDiv = document.getElementById('security-result');
+  resultDiv.innerHTML = '<div class="success">Saving...</div>';
+  try{
+    await apiFetch(`/api/security/${currentGuildId}`,{method:'POST',body:JSON.stringify(currentConfig)});
+    resultDiv.innerHTML = '<div class="success">✅ Settings saved!</div>';
+    setTimeout(()=>resultDiv.innerHTML='',2000);
+  }catch(e){resultDiv.innerHTML=`<div class="error">Error: ${e.message}</div>`}
 }
 
 async function loadTimers(){
@@ -392,6 +430,45 @@ async function createTimer(){
 }
 
 async function stopTimer(id){try{await apiFetch(`/api/timer/${id}`,{method:'DELETE'});loadTimers()}catch(e){}}
+
+async function loadModeration(){
+  try{
+    const actionsRes=await apiFetch('/api/moderation/actions');
+    const actions=await actionsRes.json();
+    const statsRes=await apiFetch('/api/moderation/stats');
+    const stats=await statsRes.json();
+    document.getElementById('content').innerHTML=`
+      <h3 style="margin-bottom:16px">⚖️ Moderation History</h3>
+      <div class="stats">
+        <div class="stat-card"><div class="stat-value">${stats.total}</div><div class="stat-label">Total Actions</div></div>
+        <div class="stat-card"><div class="stat-value">${stats.kicks}</div><div class="stat-label">Kicks</div></div>
+        <div class="stat-card"><div class="stat-value">${stats.timeouts}</div><div class="stat-label">Timeouts</div></div>
+        <div class="stat-card"><div class="stat-value">${stats.bans}</div><div class="stat-label">Bans</div></div>
+      </div>
+      <div class="card"><div class="card-title">Recent Actions</div><div id="mod-list"></div></div>
+    `;
+    const listDiv=document.getElementById('mod-list');
+    if(!actions || actions.length===0){
+      listDiv.innerHTML='<div class="success">No moderation actions recorded yet.</div>';
+      return;
+    }
+    listDiv.innerHTML='';
+    for(const a of actions){
+      const date=new Date(a.timestamp);
+      let durationText = '';
+      if(a.type === 'timeout' && a.duration){
+        durationText = ` (${a.duration}s)`;
+      }
+      listDiv.innerHTML+=`
+        <div class="mod-action">
+          <div><span class="badge badge-${a.type}">${a.type.toUpperCase()}${durationText}</span> <span class="mod-user">${escapeHtml(a.userName)}</span> <span style="color:#71717a">by ${escapeHtml(a.moderator)}</span></div>
+          <div class="mod-reason">Reason: ${escapeHtml(a.reason)}</div>
+          <div class="mod-reason">Date: ${date.toLocaleString()}</div>
+        </div>
+      `;
+    }
+  }catch(e){document.getElementById('content').innerHTML=`<div class="error">Error: ${e.message}</div>`}
+}
 
 async function loadLogs(){
   try{
